@@ -1,0 +1,7 @@
+output/*.mp4
+output/*.mp3
+__pycache__/
+*.pyc
+.env
+*.cast
+*.gif
