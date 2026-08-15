@@ -3,5 +3,3 @@ output/*.mp3
 __pycache__/
 *.pyc
 .env
-*.cast
-*.gif
