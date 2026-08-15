@@ -1,134 +1,135 @@
 #!/usr/bin/env python3
 """
-台本生成 - Gemini APIを使って3スタイル対応
+台本生成 - Fireship/NeetCodeスタイル対応
+実際のデータに基づいたスタイル:
+- Fireship: 45秒・コードリスト・「N life-changing X」
+- NeetCode: 60秒・AIニュース意見・「Did X really Y?」
 """
 import os, json, re, random, requests
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 STYLE_PROMPTS = {
-    "fireship": """あなたはFireshipスタイルのYouTube Shortsクリエイターです。
-高速・皮肉・ユーモア・コード解説が特徴。
-日本語エンジニア向けに30秒のショート動画台本を作ってください。
+    "fireship": """あなたはFireshipスタイルのYouTube Shorts台本ライターです。
+参考: 「5 life-changing Linux tips」→172万再生、「This rubber duck can debug your code」→47万再生
 
-フォーマット:
-- Hook(0-3秒): 驚きの事実 or 「これ知ってた？」
-- Core(3-25秒): コードの問題/解決を高速解説（コード例必須）
-- CTA(25-30秒): 「もっと知りたければフォロー」
+【スタイルの特徴】
+- 45秒以下、リスト形式（3〜5個）
+- コードやコマンドをそのまま表示
+- 皮肉・ユーモアあり
+- タイトルパターン: 「N つの[形容詞] [技術名] テクニック」「この[技術]で[結果]できる」
 
-JSONのみ出力:
-{"title": "タイトル(30文字以内)", "style": "fireship",
- "scenes": [
-   {"id": 0, "type": "hook", "narration": "ナレーション(15文字以内)", "code": "コード例or空文字"},
-   {"id": 1, "type": "code", "narration": "ナレーション", "code": "実際のコード"},
-   {"id": 2, "type": "code", "narration": "ナレーション", "code": "実際のコード"},
-   {"id": 3, "type": "result", "narration": "ナレーション", "code": ""},
-   {"id": 4, "type": "cta", "narration": "フォローして最新情報を受け取ってください", "code": ""}
- ]}""",
+【構成（完全に守ること）】
+- Hook（0-3秒）: 数字から始まる一文「5つの〇〇を知らないと損です」
+- Tips（3-40秒）: 各Tip 1〜2文 + 実際のコード/コマンド例
+- Outro（40-45秒）: 「フォローして最新情報を受け取れ」
 
-    "bytebyteGo": """あなたはByteByteGoスタイルのYouTube Shortsクリエイターです。
-システム設計・図解・アニメーションで解説するスタイル。
-日本語エンジニア向けに30秒のショート動画台本を作ってください。
+JSONのみ出力（日本語）:
+{
+  "title": "5つの[技術名]テクニック（30文字以内）",
+  "style": "fireship",
+  "tips": [
+    {"num": 1, "text": "説明(15文字以内)", "code": "実際のコマンド/コード"},
+    {"num": 2, "text": "説明(15文字以内)", "code": "実際のコマンド/コード"},
+    {"num": 3, "text": "説明(15文字以内)", "code": "実際のコマンド/コード"},
+    {"num": 4, "text": "説明(15文字以内)", "code": "実際のコマンド/コード"},
+    {"num": 5, "text": "説明(15文字以内)", "code": "実際のコマンド/コード"}
+  ],
+  "hook": "フック一文(20文字以内)",
+  "outro": "フォローして最新情報を受け取れ"
+}""",
 
-フォーマット:
-- Hook(0-3秒): 「なぜXXXは〇〇なのか？」という問い
-- Explain(3-25秒): 図解で説明（ステップバイステップ）
-- Summary(25-30秒): まとめ+CTA
+    "neetcode": """あなたはNeetCodeスタイルのYouTube Shorts台本ライターです。
+参考: 「Did AI Really Skyrocket the U.S. Economy?」→3万再生、「Why you need more than one adversarial code reviewer」→1.5万再生
 
-JSONのみ出力:
-{"title": "タイトル(30文字以内)", "style": "bytebyteGo",
- "scenes": [
-   {"id": 0, "type": "hook", "narration": "ナレーション(15文字以内)", "diagram": "図解の説明"},
-   {"id": 1, "type": "explain", "narration": "ナレーション", "diagram": "ステップ1の図解"},
-   {"id": 2, "type": "explain", "narration": "ナレーション", "diagram": "ステップ2の図解"},
-   {"id": 3, "type": "explain", "narration": "ナレーション", "diagram": "ステップ3の図解"},
-   {"id": 4, "type": "cta", "narration": "保存して後で確認してください", "diagram": ""}
- ]}""",
+【スタイルの特徴】
+- 44〜70秒、AIニュース・エンジニアの意見
+- 問いかけ・批判的視点
+- タイトルパターン: 「AIは本当に〇〇したのか？」「なぜ〇〇が必要なのか」
+- データ・具体的数字を使う
 
-    "oni": """あなたはONI自動化の鬼スタイルのYouTube Shortsクリエイターです。
-AI副業・具体的な数字・すぐ使える情報が特徴。
-日本語エンジニア向けに30秒のショート動画台本を作ってください。
+【構成（完全に守ること）】
+- Hook（0-5秒）: 問いかけ or 驚きの事実「AIが〇〇したと言われているが...」
+- Analysis（5-55秒）: 3つの視点で分析（各15秒）
+- Opinion（55-65秒）: 個人的意見「私はこう思う」
+- CTA（65-70秒）: 「コメントで意見を教えて」
 
-フォーマット:
-- Hook(0-3秒): 「〇〇円稼げる」「〇〇分で完了」など具体的数字
-- Value(3-25秒): 実際にできること・やり方を箇条書き3点
-- CTA(25-30秒): 「コメントにAIと書いて」
-
-JSONのみ出力:
-{"title": "タイトル(30文字以内)", "style": "oni",
- "scenes": [
-   {"id": 0, "type": "hook", "narration": "具体的数字で驚かせる一文(20文字以内)", "point": ""},
-   {"id": 1, "type": "value", "narration": "ポイント1(20文字以内)", "point": "①"},
-   {"id": 2, "type": "value", "narration": "ポイント2(20文字以内)", "point": "②"},
-   {"id": 3, "type": "value", "narration": "ポイント3(20文字以内)", "point": "③"},
-   {"id": 4, "type": "cta", "narration": "コメントにAIと書いてください", "point": ""}
- ]}"""
+JSONのみ出力（日本語）:
+{
+  "title": "AIは本当に〇〇したのか？（30文字以内）",
+  "style": "neetcode",
+  "hook": "フック一文(20文字以内)",
+  "points": [
+    {"num": 1, "text": "視点1(25文字以内)", "data": "具体的数字/事実"},
+    {"num": 2, "text": "視点2(25文字以内)", "data": "具体的数字/事実"},
+    {"num": 3, "text": "視点3(25文字以内)", "data": "具体的数字/事実"}
+  ],
+  "opinion": "個人的意見(30文字以内)",
+  "cta": "コメントで意見を教えてください"
+}"""
 }
 
 TOPICS = {
     "fireship": [
-        "Claude CodeのHooksで自動化",
-        "Python型ヒントの落とし穴",
-        "非同期処理のよくある間違い",
-        "GitのRebaseとMergeの違い",
-        "DockerのMulti-stageビルド",
-        "TypeScriptのUtility Types",
+        "Git コマンド",
+        "Claude Code ショートカット",
+        "Python one-liner",
+        "bash スクリプト",
+        "VSCode 裏技",
+        "Docker コマンド",
+        "ffmpeg テクニック",
+        "curl コマンド",
+        "jq JSONパース",
+        "sed/awk テクニック",
     ],
-    "bytebyteGo": [
-        "APIレート制限の仕組み",
-        "データベースのインデックスとは",
-        "キャッシュの種類と使い分け",
-        "WebSocketとHTTPの違い",
-        "マイクロサービスとモノリスの違い",
-        "CDNの仕組みと効果",
-    ],
-    "oni": [
-        "Claude Codeで副業月10万円",
-        "AIツールで作業時間を90%削減",
-        "無料AIで動画を自動生成",
-        "ChatGPTで稼ぐ5つの方法",
-        "Gemini APIで業務自動化",
-        "AIで英語学習を効率化",
+    "neetcode": [
+        "AIはエンジニアの仕事を奪うのか",
+        "Gemini 2.5 Proは本当にClaude Codeより優れているのか",
+        "AIコーディングツールで生産性は本当に上がったのか",
+        "量子コンピュータはAIを終わらせるのか",
+        "オープンソースLLMはGPT-4を超えたのか",
+        "Claude Codeで副業は本当に稼げるのか",
+        "AIは本当にコードレビューができるのか",
+        "2.8兆パラメータのAIは何ができるのか",
     ]
 }
 
-def generate_script(style: str = None) -> dict:
-    """台本生成"""
-    if style is None:
-        style = random.choice(["fireship", "bytebyteGo", "oni"])
-    
-    topic = random.choice(TOPICS[style])
-    prompt = STYLE_PROMPTS[style] + f"\n\nトピック: {topic}"
-    
+def call_gemini(prompt: str) -> str:
     if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY が設定されていません")
-    
+        raise ValueError("GEMINI_API_KEY未設定")
     r = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
         headers={"Content-Type": "application/json"},
         json={"contents": [{"parts": [{"text": prompt}]}]},
         timeout=30
     )
-    
     if r.status_code != 200:
-        raise Exception(f"Gemini API error: {r.status_code}")
+        raise Exception(f"Gemini error: {r.status_code}")
+    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+def generate_script(style: str = None) -> dict:
+    if style is None or style == "":
+        style = random.choice(["fireship", "neetcode"])
     
-    text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    topic = random.choice(TOPICS[style])
+    prompt = STYLE_PROMPTS[style] + f"\n\nトピック: {topic}"
+    
+    text = call_gemini(prompt)
     text = re.sub(r"```json\s*|```\s*", "", text).strip()
     m = re.search(r'\{[\s\S]*\}', text)
     if not m:
-        raise Exception("JSON not found in response")
+        raise Exception("JSONが見つかりません")
     
     plan = json.loads(m.group())
     plan["topic"] = topic
     plan["selected_style"] = style
     
-    # 保存
     os.makedirs("output", exist_ok=True)
     with open("output/trio_plan.json", "w", encoding="utf-8") as f:
         json.dump(plan, f, ensure_ascii=False, indent=2)
     
-    print(f"✅ 台本生成完了: [{style}] {plan['title']}")
+    print(f"✅ 台本生成: [{style}] {plan.get('title','?')}")
+    print(f"   トピック: {topic}")
     return plan
 
 if __name__ == "__main__":

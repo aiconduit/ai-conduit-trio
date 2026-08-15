@@ -1,170 +1,250 @@
 #!/usr/bin/env python3
 """
 Fireshipスタイル動画生成
-- コードハイライト画像 + 高速カット + ダーク背景
-- pygmentsでコードを美しく表示
+参考: 「5 life-changing Linux tips」→172万再生
+- ダーク背景
+- コードをそのまま大きく表示
+- 各Tipをカード形式で順番に表示
+- 高速カット感
 """
-import os, json, subprocess, requests, random, textwrap
+import os, subprocess, random
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 WORK_DIR = Path("/tmp/trio_work")
+W, H = 1080, 1920
 
 def _run(cmd):
     return subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
 
-def make_code_image(code: str, width=1080, height=960) -> str:
-    """Pygmentsでコードハイライト画像生成"""
-    try:
-        from pygments import highlight
-        from pygments.lexers import get_lexer_by_name, guess_lexer
-        from pygments.formatters import ImageFormatter
-        from pygments.styles import get_style_by_name
-        
-        try:
-            lexer = guess_lexer(code)
-        except:
-            lexer = get_lexer_by_name("python")
-        
-        formatter = ImageFormatter(
-            style="monokai",
-            font_size=28,
-            line_numbers=False,
-            image_pad=20,
-        )
-        result = highlight(code, lexer, formatter)
-        
-        # 一時ファイルに保存
-        tmp_path = str(WORK_DIR / "code_tmp.png")
-        with open(tmp_path, "wb") as f:
-            f.write(result)
-        
-        # 1080x960にリサイズ・パディング
-        code_img = Image.open(tmp_path)
-        bg = Image.new("RGB", (width, height), (30, 30, 30))
-        # 中央配置
-        ratio = min((width-40)/code_img.width, (height-40)/code_img.height)
-        new_w = int(code_img.width * ratio)
-        new_h = int(code_img.height * ratio)
-        code_img = code_img.resize((new_w, new_h), Image.LANCZOS)
-        x = (width - new_w) // 2
-        y = (height - new_h) // 2
-        bg.paste(code_img, (x, y))
-        
-        out_path = str(WORK_DIR / "code_highlight.png")
-        bg.save(out_path)
-        return out_path
-        
-    except ImportError:
-        # pygments未インストールの場合フォールバック
-        return make_code_image_fallback(code, width, height)
+def get_font(size, bold=True):
+    font_paths = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ]
+    for fp in font_paths:
+        if os.path.exists(fp):
+            try:
+                return ImageFont.truetype(fp, size)
+            except: pass
+    return ImageFont.load_default()
 
-def make_code_image_fallback(code: str, width=1080, height=960) -> str:
-    """pygments未インストール時のフォールバック（Pillow使用）"""
-    img = Image.new("RGB", (width, height), (30, 30, 30))
+def make_hook_frame(hook_text: str, total_tips: int) -> str:
+    """Hook画面 - 数字を大きく表示"""
+    img = Image.new("RGB", (W, H), (10, 10, 15))
     d = ImageDraw.Draw(img)
     
-    # ヘッダー
-    d.rectangle([0, 0, width, 50], fill=(45, 45, 45))
-    d.ellipse([15, 15, 35, 35], fill=(255, 95, 87))
-    d.ellipse([45, 15, 65, 35], fill=(255, 189, 46))
-    d.ellipse([75, 15, 95, 35], fill=(39, 201, 63))
+    # グラデーション風背景ライン
+    for i in range(0, H, 4):
+        alpha = int(20 * (1 - i/H))
+        d.line([(0, i), (W, i)], fill=(0, 100, 255, alpha), width=1)
     
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 26)
-    except:
-        font = ImageFont.load_default()
+    # 上部アクセントライン（Fireshipオレンジ）
+    d.rectangle([0, 0, W, 8], fill=(255, 69, 0))
     
-    # コード表示（シンタックスカラー簡易版）
-    y = 70
-    for line in code.split('\n')[:25]:
-        color = (255, 255, 255)
-        if line.strip().startswith('#'):
-            color = (106, 153, 85)
-        elif any(kw in line for kw in ['def ', 'class ', 'import ', 'from ', 'return']):
-            color = (197, 134, 192)
-        elif line.strip().startswith('"') or line.strip().startswith("'"):
-            color = (206, 145, 120)
-        d.text((20, y), line[:55], fill=color, font=font)
-        y += 36
-        if y > height - 20:
-            break
+    # 数字を超大きく（Fireshipスタイル）
+    font_huge = get_font(400)
+    font_mid = get_font(80)
+    font_small = get_font(55)
     
-    out_path = str(WORK_DIR / "code_highlight.png")
-    img.save(out_path)
-    return out_path
+    # 数字
+    num_text = str(total_tips)
+    d.text((W//2, H//2 - 150), num_text, fill=(255, 69, 0), font=font_huge, anchor="mm",
+           stroke_width=4, stroke_fill=(200, 40, 0))
+    
+    # テキスト
+    d.text((W//2, H//2 + 200), hook_text, fill=(255, 255, 255), font=font_small, anchor="mm",
+           stroke_width=2, stroke_fill=(0, 0, 0))
+    
+    # 下部ブランドライン
+    d.rectangle([0, H-8, W, H], fill=(255, 69, 0))
+    
+    path = str(WORK_DIR / "hook_frame.png")
+    img.save(path)
+    return path
 
-def make_fireship_scene(scene: dict, idx: int, dur: float, audio_path: str, ass_path: str) -> str:
-    """Fireshipスタイルシーン生成"""
+def make_tip_frame(num: int, text: str, code: str, total: int) -> str:
+    """各Tipのカード画面"""
+    img = Image.new("RGB", (W, H), (10, 10, 15))
+    d = ImageDraw.Draw(img)
+    
+    # 背景グリッド（薄い）
+    for x in range(0, W, 80):
+        d.line([(x, 0), (x, H)], fill=(20, 25, 35), width=1)
+    for y in range(0, H, 80):
+        d.line([(0, y), (W, y)], fill=(20, 25, 35), width=1)
+    
+    font_num = get_font(180)
+    font_text = get_font(65)
+    font_code = get_font(48)
+    
+    # 進捗バー
+    progress = num / total
+    d.rectangle([0, 0, int(W * progress), 10], fill=(255, 69, 0))
+    
+    # Tip番号（左上）
+    d.text((80, 120), f"#{num}", fill=(255, 69, 0), font=font_num, anchor="lm",
+           stroke_width=3, stroke_fill=(180, 40, 0))
+    
+    # 説明テキスト
+    d.text((W//2, H//2 - 80), text, fill=(255, 255, 255), font=font_text, anchor="mm",
+           stroke_width=2, stroke_fill=(0, 0, 0))
+    
+    # コードブロック（ターミナル風）
+    if code:
+        # コードボックス背景
+        pad = 40
+        code_y = H//2 + 80
+        code_lines = code.split('\n')
+        box_h = len(code_lines) * 65 + pad * 2
+        d.rounded_rectangle([pad, code_y - pad, W - pad, code_y + box_h], 
+                            radius=20, fill=(25, 30, 45))
+        d.rounded_rectangle([pad, code_y - pad, W - pad, code_y + box_h], 
+                            radius=20, outline=(60, 80, 120), width=2)
+        
+        # ターミナルドット
+        d.ellipse([pad+20, code_y-pad+20, pad+40, code_y-pad+40], fill=(255, 95, 87))
+        d.ellipse([pad+55, code_y-pad+20, pad+75, code_y-pad+40], fill=(255, 189, 46))
+        d.ellipse([pad+90, code_y-pad+20, pad+110, code_y-pad+40], fill=(39, 201, 63))
+        
+        # コードテキスト
+        for i, line in enumerate(code_lines[:6]):
+            # キーワードカラー（簡易）
+            color = (100, 200, 255)
+            if line.startswith('#') or line.startswith('//'):
+                color = (100, 160, 100)
+            elif any(kw in line for kw in ['def ', 'class ', 'import ', 'const ', 'let ']):
+                color = (200, 120, 255)
+            d.text((pad + 20, code_y + i * 65), line[:30], 
+                   fill=color, font=font_code)
+    
+    # 下部ライン
+    d.rectangle([0, H-8, W, H], fill=(255, 69, 0))
+    
+    path = str(WORK_DIR / f"tip_{num:02d}_frame.png")
+    img.save(path)
+    return path
+
+def make_outro_frame(text: str) -> str:
+    """CTA画面"""
+    img = Image.new("RGB", (W, H), (10, 10, 15))
+    d = ImageDraw.Draw(img)
+    
+    font_big = get_font(90)
+    font_small = get_font(60)
+    
+    d.rectangle([0, 0, W, 8], fill=(255, 69, 0))
+    
+    # 炎アイコン風テキスト
+    d.text((W//2, H//2 - 100), "🔥", font=get_font(200), anchor="mm")
+    d.text((W//2, H//2 + 150), text, fill=(255, 255, 255), font=font_small, anchor="mm",
+           stroke_width=2, stroke_fill=(0, 0, 0))
+    
+    d.rectangle([0, H-8, W, H], fill=(255, 69, 0))
+    
+    path = str(WORK_DIR / "outro_frame.png")
+    img.save(path)
+    return path
+
+def generate_fireship_video(plan: dict, audio_files: list, ass_files: list) -> str:
+    """Fireshipスタイル動画生成"""
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     
-    scene_type = scene.get("type", "code")
-    code = scene.get("code", "")
+    tips = plan.get("tips", [])
+    hook = plan.get("hook", "知らないと損")
+    outro = plan.get("outro", "フォローして最新情報を受け取れ")
+    total_tips = len(tips)
     
-    # 上半分: コードハイライトor黒背景
-    top_path = str(WORK_DIR / f"top_{idx:02d}.mp4")
+    # 各セクションの動画を生成
+    scene_videos = []
     
-    if code and len(code) > 5:
-        # コードハイライト画像
-        code_img_path = make_code_image(code)
-        _run(["ffmpeg", "-y", "-loop", "1", "-i", code_img_path,
-              "-t", str(dur), "-r", "30",
-              "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-an",
-              top_path])
-    else:
-        # ダーク背景 + Fireshipsタイルテキスト
-        img = Image.new("RGB", (1080, 960), (15, 15, 20))
-        d = ImageDraw.Draw(img)
-        # オレンジアクセント
-        d.rectangle([0, 0, 1080, 6], fill=(255, 100, 0))
-        d.rectangle([0, 954, 1080, 960], fill=(255, 100, 0))
+    # Hook画面（audio_files[0]があれば使用）
+    if audio_files:
+        hook_img = make_hook_frame(hook, total_tips)
+        hook_audio = audio_files[0]
+        hook_ass = ass_files[0] if ass_files else None
         
-        # タイプ別アイコン
-        type_icons = {"hook": "⚡", "result": "✅", "cta": "🔥"}
-        icon = type_icons.get(scene_type, "")
+        # 音声の長さを確認
+        dur_r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                "-of", "csv=p=0", hook_audio], capture_output=True, text=True)
+        hook_dur = float(dur_r.stdout.strip()) if dur_r.stdout.strip() else 3.0
         
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc", 80)
-        except:
-            font = ImageFont.load_default()
+        hook_video = str(WORK_DIR / "hook_scene.mp4")
+        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", hook_img,
+               "-i", hook_audio, "-vf"]
+        if hook_ass:
+            cmd.append(f"ass={hook_ass},scale={W}:{H}")
+        else:
+            cmd.append(f"scale={W}:{H}")
+        cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-c:a", "aac", "-shortest", "-pix_fmt", "yuv420p", hook_video]
+        _run(cmd)
+        if os.path.exists(hook_video) and os.path.getsize(hook_video) > 10000:
+            scene_videos.append(hook_video)
+    
+    # Tips画面
+    for i, tip in enumerate(tips):
+        if i + 1 >= len(audio_files):
+            break
         
-        if icon:
-            d.text((540, 480), icon, font=font, anchor="mm")
+        tip_img = make_tip_frame(tip["num"], tip["text"], tip.get("code", ""), total_tips)
+        tip_audio = audio_files[i + 1]
+        tip_ass = ass_files[i + 1] if i + 1 < len(ass_files) else None
         
-        img_path = str(WORK_DIR / f"hook_img_{idx:02d}.png")
-        img.save(img_path)
-        _run(["ffmpeg", "-y", "-loop", "1", "-i", img_path,
-              "-t", str(dur), "-r", "30",
-              "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-an",
-              top_path])
+        dur_r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                "-of", "csv=p=0", tip_audio], capture_output=True, text=True)
+        tip_dur = float(dur_r.stdout.strip()) if dur_r.stdout.strip() else 5.0
+        
+        tip_video = str(WORK_DIR / f"tip_{i:02d}_scene.mp4")
+        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", tip_img,
+               "-i", tip_audio, "-vf"]
+        if tip_ass:
+            cmd.append(f"ass={tip_ass},scale={W}:{H}")
+        else:
+            cmd.append(f"scale={W}:{H}")
+        cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-c:a", "aac", "-shortest", "-pix_fmt", "yuv420p", tip_video]
+        _run(cmd)
+        if os.path.exists(tip_video) and os.path.getsize(tip_video) > 10000:
+            scene_videos.append(tip_video)
     
-    # 下半分: ダーク背景
-    char_path = str(WORK_DIR / f"char_{idx:02d}.mp4")
-    img2 = Image.new("RGB", (1080, 960), (10, 10, 15))
-    d2 = ImageDraw.Draw(img2)
-    d2.rectangle([0, 0, 1080, 4], fill=(255, 100, 0))
-    char_img_path = str(WORK_DIR / f"char_img_{idx:02d}.png")
-    img2.save(char_img_path)
-    _run(["ffmpeg", "-y", "-loop", "1", "-i", char_img_path,
-          "-t", str(dur), "-r", "30",
-          "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-an",
-          char_path])
+    # Outro
+    if len(audio_files) > len(tips) + 1:
+        outro_img = make_outro_frame(outro)
+        outro_audio = audio_files[len(tips) + 1]
+        outro_ass = ass_files[len(tips) + 1] if len(tips) + 1 < len(ass_files) else None
+        
+        outro_video = str(WORK_DIR / "outro_scene.mp4")
+        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", outro_img,
+               "-i", outro_audio, "-vf"]
+        if outro_ass:
+            cmd.append(f"ass={outro_ass},scale={W}:{H}")
+        else:
+            cmd.append(f"scale={W}:{H}")
+        cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-c:a", "aac", "-shortest", "-pix_fmt", "yuv420p", outro_video]
+        _run(cmd)
+        if os.path.exists(outro_video) and os.path.getsize(outro_video) > 10000:
+            scene_videos.append(outro_video)
     
-    # 上下結合
-    combined = str(WORK_DIR / f"combined_{idx:02d}.mp4")
-    _run(["ffmpeg", "-y", "-i", top_path, "-i", char_path,
-          "-filter_complex", "[0:v][1:v]vstack=inputs=2[v]",
-          "-map", "[v]", "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-          "-pix_fmt", "yuv420p", "-an", combined])
+    if not scene_videos:
+        raise Exception("シーン動画が生成されませんでした")
     
-    # 字幕焼き込み
-    scene_out = str(WORK_DIR / f"scene_{idx:02d}.mp4")
-    _run(["ffmpeg", "-y", "-i", combined, "-i", audio_path,
-          "-vf", f"ass={ass_path}",
+    # 全シーン結合
+    concat_file = str(WORK_DIR / "fireship_concat.txt")
+    with open(concat_file, "w") as f:
+        for sv in scene_videos:
+            f.write(f"file '{sv}'\n")
+    
+    output = str(WORK_DIR / "fireship_final.mp4")
+    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_file,
           "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-          "-c:a", "aac", "-shortest", "-pix_fmt", "yuv420p", scene_out])
+          "-c:a", "aac", "-pix_fmt", "yuv420p", output])
     
-    return scene_out
+    return output
 
 if __name__ == "__main__":
     print("✅ fireship_style.py loaded")
